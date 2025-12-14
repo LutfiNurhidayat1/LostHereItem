@@ -1,6 +1,7 @@
-import { useState } from 'react';
 import { ArrowLeft, Camera, Check } from 'lucide-react';
 import { Button } from './ui/Button';
+import { useState, useEffect } from 'react';
+
 
 interface UserProfile {
   id: string;
@@ -31,7 +32,27 @@ const ITEM_CATEGORIES = [
 ];
 
 export function EditProfileScreen({ user, onBack, onSave }: EditProfileScreenProps) {
-  const [formData, setFormData] = useState<UserProfile>(user);
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    username: '',
+    phone: '',
+    about: ''
+  });
+
+  useEffect(() => {
+  if (user) {
+    setFormData({
+      name: user.name || '',
+      email: user.email || '',
+      username: user.username || '',
+      phone: user.phone || '',
+      about: user.about || ''
+    });
+  }
+}, [user]);
+
+  const [newPhoto, setNewPhoto] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -71,12 +92,13 @@ export function EditProfileScreen({ user, onBack, onSave }: EditProfileScreenPro
   };
 
   const handleSave = () => {
-    if (validate()) {
-      onSave(formData);
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 2000);
-    }
+    onSave({
+      ...user,
+      ...formData,
+      photo: newPhoto || user.photo
+    });
   };
+
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -118,7 +140,12 @@ export function EditProfileScreen({ user, onBack, onSave }: EditProfileScreenPro
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <span className="text-3xl">{formData.name.charAt(0).toUpperCase()}</span>
+                  <span className="text-3xl">
+                     {formData.name?.[0]?.toUpperCase()
+                        ?? formData.email?.[0]?.toUpperCase()
+                        ?? '?'}
+                    </span>
+
                 )}
               </div>
               <label className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center cursor-pointer hover:bg-blue-600 transition-colors shadow-lg">

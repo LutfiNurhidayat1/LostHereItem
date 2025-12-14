@@ -13,6 +13,8 @@ import { ProfileScreen } from './components/ProfileScreen';
 import { EditProfileScreen } from './components/EditProfileScreen';
 import { StorageManagementScreen } from './components/StorageManagementScreen';
 import { BottomNav, type NavTab } from './components/BottomNav';
+import { jwtDecode } from 'jwt-decode';
+
 
 export type Screen = 
   | 'login'
@@ -181,41 +183,38 @@ function App() {
   };
 
   // Handle Google login with real user data
-  const handleLoginWithGoogle = (googleUserData: any) => {
-    // Create or update user profile
+  const handleLoginWithGoogle = (credential: string) => {
+    const decoded: any = jwtDecode(credential);
+
     const userProfile: UserProfile = {
-      id: googleUserData.id,
-      name: googleUserData.name,
-      email: googleUserData.email,
-      photo: googleUserData.picture,
-      username: undefined,
-      phone: undefined,
-      about: undefined,
+      id: decoded.sub,
+      name: decoded.name || '',
+      email: decoded.email,
+      photo: decoded.picture,
+      username: '',
+      phone: '',
+      about: '',
       preferredCategories: []
     };
 
-    // Check if user exists in storage
+    // cek apakah user sudah pernah ada
     const allUsersStr = localStorage.getItem(STORAGE_KEYS.ALL_USERS);
     const allUsers = allUsersStr ? JSON.parse(allUsersStr) : [];
-    const existingUser = allUsers.find((u: UserProfile) => u.id === googleUserData.id);
-    
-    if (existingUser) {
-      // Load existing user data
-      setUser(existingUser);
-    } else {
-      // New user
-      setUser(userProfile);
-    }
+
+    const existingUser = allUsers.find((u: UserProfile) => u.id === userProfile.id);
+
+    setUser(existingUser || userProfile);
 
     setIsLoggedIn(true);
     setIsGuest(false);
     setCurrentScreen('home');
 
-    localStorage.setItem(STORAGE_KEYS.AUTH_STATE, JSON.stringify({ 
-      isLoggedIn: true, 
-      isGuest: false 
-    }));
+    localStorage.setItem(
+      STORAGE_KEYS.AUTH_STATE,
+      JSON.stringify({ isLoggedIn: true, isGuest: false })
+    );
   };
+
 
   // Handle guest login
   const handleContinueAsGuest = () => {
@@ -246,7 +245,10 @@ function App() {
 
   // Save profile changes
   const handleSaveProfile = (updatedUser: UserProfile) => {
-    setUser(updatedUser);
+    setUser({
+      ...user!,
+      ...updatedUser
+    });
   };
 
   // Navigation handlers

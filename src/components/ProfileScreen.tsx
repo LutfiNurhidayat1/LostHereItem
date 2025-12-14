@@ -30,6 +30,15 @@ export function ProfileScreen({
   onStorageManagement,
   onLogout
 }: ProfileScreenProps) {
+
+  if (!isGuest && !user) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-gray-500">Memuat profil...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Header */}
@@ -55,7 +64,11 @@ export function ProfileScreen({
                   className="w-full h-full rounded-full object-cover"
                 />
               ) : (
-                <span className="text-2xl">{user?.name.charAt(0).toUpperCase()}</span>
+                <span className="text-2xl">
+                  {user?.name?.[0]?.toUpperCase()
+                    ?? user?.email?.[0]?.toUpperCase()
+                    ?? '?'}
+                </span>
               )}
             </div>
 
