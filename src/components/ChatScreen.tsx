@@ -1,13 +1,22 @@
 import { useState } from 'react';
 import { ArrowLeft, Send, Image as ImageIcon } from 'lucide-react';
 import { ChatBubble } from './ui/ChatBubble';
+import { useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+
 
 interface ChatScreenProps {
   userName?: string;
   itemType?: string;
   reportType: 'lost' | 'found';
   onBack: () => void;
+
+  //  TAMBAHAN
+  threadId: string;
+  isTemplateChat?: boolean;
 }
+
+
 
 interface Message {
   id: string;
@@ -17,42 +26,102 @@ interface Message {
   timestamp: string;
 }
 
-export function ChatScreen({ userName = 'User', itemType = 'Item', reportType, onBack }: ChatScreenProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      text: 'Hai! Saya rasa saya menemukan barang Anda. Bisakah Anda jelaskan lebih detail?',
-      sender: 'other',
-      timestamp: '10:30'
-    },
-    {
-      id: '2',
-      text: 'Ya! Ini adalah ransel biru dengan robek kecil di tali kiri dan ada gantungan kunci.',
-      sender: 'user',
-      timestamp: '10:32'
-    },
-    {
-      id: '3',
-      text: 'Cocok! Saya menemukannya dekat perpustakaan. Bisa Anda ceritakan seperti apa gantungan kuncinya?',
-      sender: 'other',
-      timestamp: '10:33'
-    }
-  ]);
+export function ChatScreen({
+  userName = 'User',
+  itemType = 'Item',
+  reportType,
+  onBack,
+  threadId,
+  isTemplateChat = false
+}: ChatScreenProps) {
 
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
 
-  const handleSend = () => {
-    if (inputText.trim()) {
-      const newMessage: Message = {
-        id: Date.now().toString(),
-        text: inputText,
-        sender: 'user',
-        timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-      };
-      setMessages([...messages, newMessage]);
-      setInputText('');
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session?.user) {
+        setCurrentUserId(data.session.user.id);
+      }
+    });
+  }, []);
+
+
+
+  useEffect(() => {
+    if (!threadId || !currentUserId) return;
+
+    const loadMessages = async () => {
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .eq('thread_id', threadId)
+        .order('created_at', { ascending: true });
+
+      if (!error && data) {
+        setMessages(
+          data.map((m) => ({
+            id: m.id,
+            text: m.message,
+            sender: (m.sender_id === currentUserId
+              ? 'user'
+              : 'other') as 'user' | 'other',
+            timestamp: new Date(m.created_at).toLocaleTimeString('id-ID', {
+              hour: '2-digit',
+              minute: '2-digit'
+            })
+          }))
+        );
+      }
+    };
+
+    loadMessages();
+  }, [threadId, currentUserId]);
+
+
+
+  const handleSend = async () => {
+    if (!inputText.trim()) return;
+
+    if (!currentUserId) {
+      console.warn('User belum siap');
+      return;
+    }
+
+    if (!threadId) {
+      console.warn('Thread ID tidak ada');
+     return;
+    }
+
+    const newMessage: Message = {
+      id: crypto.randomUUID(),
+      text: inputText,
+      sender: 'user',
+      timestamp: new Date().toLocaleTimeString('id-ID', {
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    };
+
+    //  LANGSUNG tampil di UI
+    setMessages((prev) => [...prev, newMessage]);
+    setInputText('');
+
+    const { error } = await supabase
+      .from('chat_messages')
+      .insert({
+        thread_id: threadId,
+        sender_id: currentUserId,
+        message: newMessage.text
+      });
+
+    if (error) {
+      console.error('Gagal kirim pesan:', error);
     }
   };
+
+
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -100,6 +169,22 @@ export function ChatScreen({ userName = 'User', itemType = 'Item', reportType, o
             🔒 Chat ini bersifat pribadi dan aman. Verifikasi barang sebelum membagikan info kontak pribadi.
           </p>
         </div>
+
+        {isTemplateChat && messages.length === 0 && (
+          <>
+            <ChatBubble
+              text="Hai! Saya rasa saya menemukan barang Anda."
+              sender="other"
+              timestamp=""
+            />
+            <ChatBubble
+              text="Terima kasih! Bisa dijelaskan lebih detail?"
+              sender="user"
+              timestamp=""
+            />
+          </>
+       )}
+
 
         {messages.map((message) => (
           <ChatBubble

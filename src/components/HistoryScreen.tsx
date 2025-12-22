@@ -6,9 +6,10 @@ interface HistoryScreenProps {
   reports: Report[];
   onBack: () => void;
   onReportClick: (report: Report) => void;
+  onDeleteReport: (id: string) => void; // ⬅️ WAJIB
 }
 
-export function HistoryScreen({ reports, onBack, onReportClick }: HistoryScreenProps) {
+export function HistoryScreen({ reports, onBack, onReportClick, onDeleteReport }: HistoryScreenProps) {
   return (
     <div className="flex flex-col h-full bg-white">
       {/* Header */}
@@ -29,12 +30,25 @@ export function HistoryScreen({ reports, onBack, onReportClick }: HistoryScreenP
         {reports.length > 0 ? (
           <div className="space-y-4 pb-20">
             {reports.map((report) => (
-              <Card
-                key={report.id}
-                report={report}
-                onClick={() => onReportClick(report)}
-              />
-            ))}
+              <div key={report.id} className="relative">
+                <Card
+                  report={report}
+                  onClick={() => onReportClick(report)}
+                />
+
+                {/* Tombol hapus */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation(); // ⛔ penting
+                    onDeleteReport(report.id);
+                }}
+                className="absolute top-3 right-3 p-2 rounded-full bg-red-50 hover:bg-red-100"
+                title="Hapus laporan"
+              >
+                🗑️
+              </button>
+            </div>
+          ))}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full">

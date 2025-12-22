@@ -13,7 +13,7 @@ import { ProfileScreen } from './components/ProfileScreen';
 import { EditProfileScreen } from './components/EditProfileScreen';
 import { StorageManagementScreen } from './components/StorageManagementScreen';
 import { BottomNav, type NavTab } from './components/BottomNav';
-import { jwtDecode } from 'jwt-decode';
+import { supabase } from './lib/supabase';
 
 
 export type Screen = 
@@ -61,19 +61,14 @@ interface UserProfile {
 }
 
 // Storage keys for persistent data
-const STORAGE_KEYS = {
-  ALL_REPORTS: 'losthere_all_reports',
-  ALL_CHATS: 'losthere_all_chats',
-  CURRENT_USER: 'losthere_current_user',
-  ALL_USERS: 'losthere_all_users',
-  AUTH_STATE: 'losthere_auth_state'
-};
+
 
 function App() {
   // Authentication state
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isGuest, setIsGuest] = useState(false);
-  const [user, setUser] = useState<UserProfile | undefined>(undefined);
+  const [user, setUser] = useState<any>(null);
+
 
   // Navigation state
   const [currentScreen, setCurrentScreen] = useState<Screen>('login');
@@ -93,6 +88,48 @@ function App() {
       read: false
     }
   ]);
+
+  const requireAuth = (screen: Screen) => {
+    const protectedScreens: Screen[] = [
+      'profile',
+      'edit-profile',
+      'chat-list',
+      'chat-detail',
+      'notifications',
+      'storage-management'
+    ];
+
+    if (protectedScreens.includes(screen)) {
+      if (!user) {
+        setCurrentScreen('login');
+        return false;
+      }
+    }
+    return true;
+  };
+
+  useEffect(() => {
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          email: session.user.email!,
+          name: session.user.user_metadata.full_name,
+          photo: session.user.user_metadata.avatar_url
+        });
+        setIsLoggedIn(true);
+        setCurrentScreen('home');
+      } else {
+        setIsLoggedIn(false);
+        setCurrentScreen('login');
+      }
+    });
+
+  return () => subscription.unsubscribe();
+}, []);
+
 
   // Mock chat threads - PERSISTENT across all users
   const [chatThreads, setChatThreads] = useState<ChatThread[]>([
@@ -114,106 +151,75 @@ function App() {
     }
   ]);
 
-  // Load persistent data on mount
-  useEffect(() => {
-    loadPersistentData();
-  }, []);
+  const fetchReports = async () => {
+    if (!user) return;
 
-  // Save reports whenever they change
-  useEffect(() => {
-    if (allReports.length >= 0) {
-      localStorage.setItem(STORAGE_KEYS.ALL_REPORTS, JSON.stringify(allReports));
+    const { data, error } = await supabase
+      .from('reports')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Fetch reports error:', error.message);
+      return;
     }
-  }, [allReports]);
 
-  // Save chats whenever they change
+    setAllReports(data || []);
+  };
+
+
+
   useEffect(() => {
-    if (chatThreads.length >= 0) {
-      localStorage.setItem(STORAGE_KEYS.ALL_CHATS, JSON.stringify(chatThreads));
-    }
-  }, [chatThreads]);
+    if (!user) return;
 
-  // Save current user whenever it changes
+    fetchReports();
+  }, [user]);
+  
+
+
+  const loadReportsFromBackend = async () => {
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from('reports')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (!error) {
+      setAllReports(data || []);
+    }
+  };
+
+
   useEffect(() => {
     if (user) {
-      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(user));
-      
-      // Also save to users list
-      const allUsersStr = localStorage.getItem(STORAGE_KEYS.ALL_USERS);
-      const allUsers = allUsersStr ? JSON.parse(allUsersStr) : [];
-      const existingUserIndex = allUsers.findIndex((u: UserProfile) => u.id === user.id);
-      
-      if (existingUserIndex >= 0) {
-        allUsers[existingUserIndex] = user;
-      } else {
-        allUsers.push(user);
-      }
-      
-      localStorage.setItem(STORAGE_KEYS.ALL_USERS, JSON.stringify(allUsers));
+      loadReportsFromBackend();
     }
   }, [user]);
 
-  const loadPersistentData = () => {
-    // Load all reports (persistent across users)
-    const savedReports = localStorage.getItem(STORAGE_KEYS.ALL_REPORTS);
-    if (savedReports) {
-      setAllReports(JSON.parse(savedReports));
+  useEffect(() => {
+    if (!user && !isGuest && currentScreen !== 'login') {
+      setCurrentScreen('login');
     }
+  }, [user, isGuest, currentScreen]);
 
-    // Load all chats (persistent across users)
-    const savedChats = localStorage.getItem(STORAGE_KEYS.ALL_CHATS);
-    if (savedChats) {
-      setChatThreads(JSON.parse(savedChats));
-    }
 
-    // Load current user session
-    const savedUser = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
-    const savedAuthState = localStorage.getItem(STORAGE_KEYS.AUTH_STATE);
+  // Load persistent data on mount
+ 
 
-    if (savedUser && savedAuthState) {
-      const authState = JSON.parse(savedAuthState);
-      setUser(JSON.parse(savedUser));
-      setIsLoggedIn(authState.isLoggedIn);
-      setIsGuest(authState.isGuest);
-      
-      if (authState.isLoggedIn || authState.isGuest) {
-        setCurrentScreen('home');
-      }
-    }
-  };
+  // Save reports whenever they change
+
+
+  // Save chats whenever they change
+
+
+  // Save current user whenever it changes
+  
+
+  
 
   // Handle Google login with real user data
-  const handleLoginWithGoogle = (credential: string) => {
-    const decoded: any = jwtDecode(credential);
-
-    const userProfile: UserProfile = {
-      id: decoded.sub,
-      name: decoded.name || '',
-      email: decoded.email,
-      photo: decoded.picture,
-      username: '',
-      phone: '',
-      about: '',
-      preferredCategories: []
-    };
-
-    // cek apakah user sudah pernah ada
-    const allUsersStr = localStorage.getItem(STORAGE_KEYS.ALL_USERS);
-    const allUsers = allUsersStr ? JSON.parse(allUsersStr) : [];
-
-    const existingUser = allUsers.find((u: UserProfile) => u.id === userProfile.id);
-
-    setUser(existingUser || userProfile);
-
-    setIsLoggedIn(true);
-    setIsGuest(false);
-    setCurrentScreen('home');
-
-    localStorage.setItem(
-      STORAGE_KEYS.AUTH_STATE,
-      JSON.stringify({ isLoggedIn: true, isGuest: false })
-    );
-  };
 
 
   // Handle guest login
@@ -222,26 +228,15 @@ function App() {
     setIsLoggedIn(false);
     setCurrentScreen('home');
 
-    localStorage.setItem(STORAGE_KEYS.AUTH_STATE, JSON.stringify({ 
-      isLoggedIn: false, 
-      isGuest: true 
-    }));
   };
 
   // Handle logout
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setIsGuest(false);
-    setUser(undefined);
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
     setCurrentScreen('login');
-    setActiveNavTab('home');
-
-    // Remove current user but keep all reports and chats
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-    localStorage.removeItem(STORAGE_KEYS.AUTH_STATE);
-    
-    // Reports and chats remain in storage!
   };
+
 
   // Save profile changes
   const handleSaveProfile = (updatedUser: UserProfile) => {
@@ -260,7 +255,7 @@ function App() {
     } else if (tab === 'chat') {
       setCurrentScreen('chat-list');
     } else if (tab === 'profile') {
-      setCurrentScreen('profile');
+      requireAuth('profile') && setCurrentScreen('profile');
     }
   };
 
@@ -269,52 +264,145 @@ function App() {
     setCurrentScreen(type === 'lost' ? 'lost-form' : 'found-form');
   };
 
-  const handleSubmitReport = (data: any, type: 'lost' | 'found') => {
-    // Simulate matching logic - check against existing reports
+  const calculateMatchScore = (a: any, b: any) => {
+    let score = 0;
+
+    if (a.brand && b.brand && a.brand === b.brand) score += 3;
+    if (a.color && b.color && a.color === b.color) score += 2;
+    if (a.model && b.model && a.model === b.model) score += 3;
+
+    if (
+      a.characteristics &&
+      b.characteristics &&
+      b.characteristics.toLowerCase().includes(a.characteristics.toLowerCase())
+    ) {
+      score += 2;
+    }
+
+    if (a.location === b.location) score += 1;
+
+    return score;
+  };
+
+
+  const checkMatchingAndNotify = async (data: any, type: 'lost' | 'found') => {
+    if (!user) return;
+
     const oppositeType = type === 'lost' ? 'found' : 'lost';
-    const matchingReports = allReports.filter(r => 
-      r.type === oppositeType && 
-      r.category === data.category &&
-      r.color.toLowerCase() === data.color.toLowerCase()
-    );
-    
-    const matchCount = matchingReports.length;
-    
-    const newReport: Report = {
-      id: Date.now().toString(),
-      type,
-      category: data.category,
-      brand: data.brand || '',
-      model: data.model || data.itemName || '',
-      color: data.color || '',
-      characteristics: data.characteristics || '',
-      location: data.location,
-      date: data.date,
-      photo: data.photo,
-      status: matchCount > 0 ? 'matched' : 'pending',
-      matchCount,
-      userId: user?.id || 'guest'
-    };
 
-    const updatedReports = [...allReports, newReport];
-    setAllReports(updatedReports);
-    setCurrentReport(newReport);
+    const { data: candidates } = await supabase
+      .from('reports')
+      .select('*')
+      .eq('type', oppositeType)
+      .eq('category', data.category)
+      .neq('user_id', user.id);
 
-    // If there's a match, create notification for matched users
-    if (matchCount > 0) {
+    if (!candidates || candidates.length === 0) {
+      setCurrentScreen('no-match');
+      return;
+    }
+
+    const matchedReports = candidates.filter((r) => {
+      const score = calculateMatchScore(data, r);
+      return score >= 5; // 🎯 threshold
+    });
+
+    if (matchedReports.length > 0) {
       const newNotification = {
         id: Date.now().toString(),
         type: 'match-found',
-        message: `A new ${type} item matches your ${oppositeType} ${data.category} report`,
-        timestamp: 'Just now',
+        message: `Ada laporan ${oppositeType} yang sangat cocok dengan laporan ${type} Anda`,
+        timestamp: 'Baru saja',
         read: false
       };
-      setNotifications([newNotification, ...notifications]);
+
+      setNotifications((prev) => [newNotification, ...prev]);
       setCurrentScreen('match-result');
     } else {
       setCurrentScreen('no-match');
     }
   };
+
+
+  const isDuplicateReport = (
+    newReport: Report,
+    existingReports: Report[],
+    userId: string
+  ) => {
+    return existingReports.some((r) => {
+      if (r.userId !== userId) return false;
+
+      const sameCategory = r.category === newReport.category;
+      const sameLocation = r.location === newReport.location;
+      const sameTypeOpposite = r.type !== newReport.type;
+
+      return sameCategory && sameLocation && sameTypeOpposite;
+    });
+  };
+
+
+  const handleSubmitReport = async (data: any, type: 'lost' | 'found') => {
+    if (!user) return;
+
+    // 🔴 CEK DUPLIKAT
+    const tempReport: Report = {
+      id: 'temp',
+      userId: user.id,
+      type,
+      category: data.category,
+      brand: data.brand || '',
+      model: data.model || '',
+      color: data.color || '',
+      characteristics: data.characteristics || '',
+      location: data.location,
+      date: data.date,
+      status: 'pending'
+    };
+
+    const duplicate = isDuplicateReport(
+      tempReport,
+      allReports,
+      user.id
+    );
+
+    if (duplicate) {
+      alert(
+        'Anda sudah pernah melaporkan barang yang sama.\n' +
+        'Laporan tidak disimpan.'
+      );
+      return;
+    }
+
+    // 🔵 INSERT KE SUPABASE
+    const { data: inserted, error } = await supabase
+      .from('reports')
+      .insert({
+        user_id: user.id,
+        type,
+        category: data.category,
+        brand: data.brand || '',
+        model: data.model || '',
+        color: data.color || '',
+        characteristics: data.characteristics || '',
+        location: data.location,
+        date: data.date,
+        photo: data.photo,
+        status: 'pending'
+      })
+      .select()
+      .single();
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setCurrentReport(inserted);
+    await checkMatchingAndNotify(inserted, type);
+  };
+
+
+  
 
   const handleStartChat = () => {
     if (currentReport) {
@@ -349,14 +437,39 @@ function App() {
   };
 
   // Storage management
-  const handleClearStorage = () => {
-    // Clear all persistent data
-    localStorage.removeItem(STORAGE_KEYS.ALL_REPORTS);
-    localStorage.removeItem(STORAGE_KEYS.ALL_CHATS);
-    setAllReports([]);
-    setChatThreads([]);
-    setNotifications([]);
+  const handleClearStorage = async () => {
+  if (!user) return;
+
+  await supabase.from('reports').delete().eq('user_id', user.id);
+  await supabase.from('chats').delete().eq('user_id', user.id);
+
+  setAllReports([]);
+  setChatThreads([]);
+  setNotifications([]);
   };
+
+  const handleDeleteReport = async (reportId: string) => {
+    if (!user) {
+      alert('Silakan login untuk menghapus laporan');
+      return;
+    }
+
+    if (!confirm('Hapus laporan ini?')) return;
+
+    const { error } = await supabase
+      .from('reports')
+      .delete()
+      .eq('id', reportId)
+      .eq('user_id', user.id);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setAllReports(prev => prev.filter(r => r.id !== reportId));
+  };
+
 
   const handleExportData = () => {
     const data = {
@@ -389,9 +502,14 @@ function App() {
         {/* Login Screen */}
         {currentScreen === 'login' && (
           <LoginScreen
-            onLoginWithGoogle={handleLoginWithGoogle}
-            onContinueAsGuest={handleContinueAsGuest}
-          />
+            onLoginWithGoogle={async () => {
+            await supabase.auth.signInWithOAuth({
+            provider: 'google'
+          });
+        }}
+        onContinueAsGuest={handleContinueAsGuest}
+      />
+
         )}
 
         {/* Home Screen */}
@@ -446,7 +564,13 @@ function App() {
           <MatchResult
             matchCount={currentReport.matchCount || 0}
             reportType={currentReport.type}
-            onStartChat={isGuest ? handleLoginWithGoogle : handleStartChat}
+            onStartChat={() => {
+              if (isGuest) {
+                setCurrentScreen('login');
+              } else {
+                handleStartChat();
+              }
+          }}
             onBackHome={() => setCurrentScreen('home')}
           />
         )}
@@ -488,16 +612,13 @@ function App() {
         {currentScreen === 'history' && (
           <HistoryScreen
             reports={allReports}
+            onDeleteReport={handleDeleteReport}
             onBack={() => setCurrentScreen('home')}
             onReportClick={(report) => {
               setCurrentReport(report);
               if (report.status === 'matched' || report.status === 'chat-ongoing') {
                 if (isGuest) {
-                  handleLoginWithGoogle({
-                    id: 'google_demo',
-                    email: 'demo@university.edu',
-                    name: 'Demo User'
-                  });
+                  setCurrentScreen('login');
                 } else {
                   setCurrentScreen('chat-detail');
                 }
@@ -512,11 +633,7 @@ function App() {
             isGuest={isGuest}
             user={user}
             reportCount={allReports.length}
-            onLoginWithGoogle={() => handleLoginWithGoogle({
-              id: 'google_demo',
-              email: 'demo@university.edu',
-              name: 'Demo User'
-            })}
+            onLoginWithGoogle={() => setCurrentScreen('login')}
             onEditProfile={() => setCurrentScreen('edit-profile')}
             onViewReports={() => setCurrentScreen('history')}
             onNotificationSettings={() => {
@@ -534,10 +651,13 @@ function App() {
             onBack={() => setCurrentScreen('profile')}
             onSave={(updatedUser) => {
               handleSaveProfile(updatedUser);
-              setCurrentScreen('profile');
+              requireAuth('profile') && setCurrentScreen('profile');
             }}
           />
         )}
+
+        
+
 
         {/* Storage Management */}
         {currentScreen === 'storage-management' && (
